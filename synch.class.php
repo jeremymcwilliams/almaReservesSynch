@@ -1,13 +1,25 @@
 <?php
 
+/*
+
+This works under the assumption that there is only one reading list per course. Like, why would you need more than one?
+
+
+
+*/
+
+
+
 class reservesSynch{
 
 
     function __construct(){
 			
+			$this->apiKey="l7xx70b4c665adc344dd864fe7e383d71e4a";
+			
 			ini_set('display_errors',1);
-ini_set('display_startup_errors',1);
-error_reporting(-1);
+			ini_set('display_startup_errors',1);
+			error_reporting(-1);
 			
             $link = mysqli_connect("localhost", "reserves", "theCharlatansUK", "reserves");
 
@@ -211,8 +223,9 @@ error_reporting(-1);
             $instructor=mysqli_real_escape_string($this->link,$course["courseInstructor"]);
             $courseID=mysqli_real_escape_string($this->link,$course["courseIdentifier"]);    
             $status=mysqli_real_escape_string($this->link,$course["status"]);
+            $readingListID=mysqli_real_escape_string($this->link, $course["readingListID"]);
             
-            $sql="insert into courses (course_identifier,course_code,course_name,course_section,instructor, status) values('$courseID','$courseCode','$courseName','$courseSection','$instructor', $status) ";
+            $sql="insert into courses (course_identifier,course_code,course_name,course_section,instructor, status, readinglist_id) values('$courseID','$courseCode','$courseName','$courseSection','$instructor', $status, '$readingListID') ";
     
             if (mysqli_query($this->link, $sql)){
                 return true;
@@ -231,7 +244,7 @@ error_reporting(-1);
 
 		$ch = curl_init();
 		$url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses';
-		$queryParams = '?' . urlencode('q') . '=' . urlencode('searchableid~res') . '&' . urlencode('limit') . '=' . urlencode('500') . '&' . urlencode('offset') . '=' . urlencode('0') . '&' . urlencode('apikey') . '=' . urlencode('l7xx70b4c665adc344dd864fe7e383d71e4a');
+		$queryParams = '?' . urlencode('q') . '=' . urlencode('searchableid~res') . '&' . urlencode('limit') . '=' . urlencode('500') . '&' . urlencode('offset') . '=' . urlencode('0') . '&' . urlencode('apikey') . '=' . urlencode($this->apiKey);
 		curl_setopt($ch, CURLOPT_URL, $url . $queryParams);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
 		curl_setopt($ch, CURLOPT_HEADER, FALSE);
@@ -250,55 +263,121 @@ error_reporting(-1);
 
 
 			$courses=$this->getCourses();
+
 			
-			var_dump($courses);
+			$xml=simplexml_load_string($courses);
 			
-
-	        for ($i = 0; $i <= $limit; $i++) {
-	            $u="false";
-	            $courses=$alma->queryAPI("searchCourseInformation", array("arg0"=>"searchableid=res","arg1"=>"$i","arg2"=>"1"));
-	            $xml=$courses->asXML();
-	            //echo $xml;
-	            if ($courseId = $courses->results->course->course_information->identifier){
-	                //$id=$this->getID($courseId);
-	                //if ($this->updateIndex($id, $i)){$u="true";}
-	               
-	                $this->writeFile($courseId, $xml);                
-	
-	
-	           		foreach ($courses->results->course as $course) {
-		            	$courseCode = $course->course_information->code;
-		            	$courseName = $course->course_information->name;
-		            	$courseSection = $course->course_information->section;
-		            	$instructor = $course->course_information->instructors->instructor; //there might be more than one instructor
-		            	$courseID = $course->course_information->identifier;
-		            	$st=$course->course_information->status;
-		            	if ($st=="ACTIVE"){$status=1;}
-		            	else{$status=0;}
-		            	
-		            	
-		            	$almaCourses["$courseID"]["courseName"]=$courseName;
-		            	$almaCourses["$courseID"]["courseCode"]=$courseCode;
-		            	$almaCourses["$courseID"]["courseSection"]=$courseSection;
-		            	$almaCourses["$courseID"]["courseInstructor"]=$instructor;
-		            	$almaCourses["$courseID"]["courseIdentifier"]=$courseID;
-            			$almaCourses["$courseID"]["status"]=$status;
-            
-            //echo "<p>$courseID | $courseCode | $courseName | $courseSection</p>";
-
-           			} 
-
-	            }
-	            else{
-	            	$courseId="N/A";$id="N/A";
-					break;
-				}    
- 
-	        }		   
+			
+			foreach ($xml->course as $course){
+			
+				$courseID=$course->id;
+				$courseCode=$course->code;
+				$courseName=$course->name;
+				$instructor=$course->instructors->instructor;
+				$courseSection=$course->section;
+				$st=$course->status;
+				if ($st=="ACTIVE"){$status=1;}
+				else{$status=0;}
+				
+				$readingListID=$this->getReadingListID($courseID);
+				
+				echo $readingListID."<br>";
+				
+				//update this to query API
+				//$this->writeFile($courseId, $xml); 
+				
+				
+				
+		        $almaCourses["$courseID"]["courseName"]=$courseName;
+		        $almaCourses["$courseID"]["courseCode"]=$courseCode;
+		        $almaCourses["$courseID"]["courseSection"]=$courseSection;
+		        $almaCourses["$courseID"]["courseInstructor"]=$instructor;
+		        $almaCourses["$courseID"]["courseIdentifier"]=$courseID;
+            	$almaCourses["$courseID"]["status"]=$status;
+            	$almaCourses["$courseID"]["readingListID"]=$readingListID;				
+			
+			
+			}
+			
+			var_dump($almaCourses);
+			
+			
+	   
 
            return $almaCourses;    
 
     }
+
+
+	function getCourseReadingList($courseID, $readingListID){
+		$ch = curl_init();
+		$url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses/{course_id}/reading-lists/{reading_list_id}';
+		$templateParamNames = array('{course_id}','{reading_list_id}');
+		$templateParamValues = array(urlencode($courseID),urlencode($readingListID));
+		$url = str_replace($templateParamNames, $templateParamValues, $url);
+		$queryParams = '?' . urlencode('view') . '=' . urlencode('full') . '&' . urlencode('apikey') . '=' . urlencode($this->apiKey);
+		curl_setopt($ch, CURLOPT_URL, $url . $queryParams);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+		curl_setopt($ch, CURLOPT_HEADER, FALSE);
+		curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
+		$response = curl_exec($ch);
+		curl_close($ch);
+	
+
+	
+	}
+
+	
+
+	function getReadingListID($courseID){
+	
+		$sql="select readinglist_id from courses where course_identifier='$courseID'";
+        if ($result = mysqli_query($this->link, $sql)) {
+        
+        	$row_cnt = mysqli_num_rows($result);
+        	if ($row_cnt>0){
+        		$obj=mysqli_fetch_object($result);
+        		$readingListID=$obj->readinglist_id;
+        	}
+        	else{
+        		$readingListID=$this->getReadingListIDapi($courseID);
+
+        	}
+
+            /* free result set */
+            mysqli_free_result($result);
+        }
+        return $readingListID;		
+
+	}
+	
+	function getReadingListIDapi($courseID){
+	
+		$ch = curl_init();
+		$url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses/{course_id}/reading-lists';
+		$templateParamNames = array('{course_id}');
+		$templateParamValues = array(urlencode($courseID));
+		$url = str_replace($templateParamNames, $templateParamValues, $url);
+		$queryParams = '?' . urlencode('apikey') . '=' . urlencode($this->apiKey);
+		curl_setopt($ch, CURLOPT_URL, $url . $queryParams);
+		curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
+		curl_setopt($ch, CURLOPT_HEADER, FALSE);
+		curl_setopt($ch, CURLOPT_CUSTOMREQUEST, 'GET');
+		$response = curl_exec($ch);
+		curl_close($ch);		
+		$xml=simplexml_load_string($response);
+		$readingListID=$xml->reading_list->id;
+		return $readingListID;	
+
+	}
+	
+	
+	
+
+	
+
+
+
     
     function writeFile($id, $xml){
             $myFile = "/home/watzek_web/html/reserves/xml/$id.xml";
