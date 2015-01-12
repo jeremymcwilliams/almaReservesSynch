@@ -204,7 +204,9 @@ class reservesSynch{
         $instructor=mysqli_real_escape_string($this->link,$course["courseInstructor"]);
         $courseID=mysqli_real_escape_string($this->link,$course["courseIdentifier"]);
         $status=mysqli_real_escape_string($this->link,$course["status"]);
-        $sql="update courses set course_code='$courseCode', course_name='$courseName', course_section='$courseSection', instructor='$instructor', status=$status where course_identifier='$courseID'";
+        $readingListID=mysqli_real_escape_string($this->link, $course["readingListID"]);
+        
+        $sql="update courses set course_code='$courseCode', course_name='$courseName', course_section='$courseSection', instructor='$instructor', status=$status, readinglist_id='$readingListID' where course_identifier='$courseID'";
     
         if (mysqli_query($this->link, $sql)){
             return true;
@@ -217,7 +219,7 @@ class reservesSynch{
     
     function insertCourse($course){
 
-            $coursName=mysqli_real_escape_string($this->link,$course["courseName"]);
+            $courseName=mysqli_real_escape_string($this->link,$course["courseName"]);
             $courseCode=mysqli_real_escape_string($this->link,$course["courseCode"]);
             $courseSection=mysqli_real_escape_string($this->link,$course["courseSection"]);
             $instructor=mysqli_real_escape_string($this->link,$course["courseInstructor"]);
@@ -238,13 +240,13 @@ class reservesSynch{
     
     }
 
-	function getCourses(){
+	function getCourses($limit, $offset){
 
 
 
 		$ch = curl_init();
 		$url = 'https://api-na.hosted.exlibrisgroup.com/almaws/v1/courses';
-		$queryParams = '?' . urlencode('q') . '=' . urlencode('searchableid~res') . '&' . urlencode('limit') . '=' . urlencode('500') . '&' . urlencode('offset') . '=' . urlencode('0') . '&' . urlencode('apikey') . '=' . urlencode($this->apiKey);
+		$queryParams = '?' . urlencode('q') . '=' . urlencode('searchableid~res') . '&' . urlencode('limit') . '=' . urlencode($limit) . '&' . urlencode('offset') . '=' . urlencode($offset) . '&' . urlencode('apikey') . '=' . urlencode($this->apiKey);
 		curl_setopt($ch, CURLOPT_URL, $url . $queryParams);
 		curl_setopt($ch, CURLOPT_RETURNTRANSFER, TRUE);
 		curl_setopt($ch, CURLOPT_HEADER, FALSE);
@@ -262,18 +264,92 @@ class reservesSynch{
         	$almaCourses=array();
 
 
-			$courses=$this->getCourses();
+			$check=$this->getCourses("1","0");
 
+			$xml=simplexml_load_string($check);
+			$totalCount=intval($xml->attributes()->total_record_count);
+			//echo $totalCount;
 			
-			$xml=simplexml_load_string($courses);
+			$loops=ceil($totalCount/100);
 			
+			echo $loops;
+			$offset=0;
+			
+			for ($i=1;$i<=$loops;$i++){
+			
+				$offset=($i-1)*100;
+				
+				echo "$i $offset<br>";
+				
+				$data=$this->getCourses("100",$offset);
+				$xml=simplexml_load_string($data);
+				//echo $data;
+				//echo "<hr>";
+				
+				
+				foreach ($xml->course as $course){
+			
+					$courseID=$course->id;
+					$courseCode=$course->code;
+					$courseName=$course->name;
+					$instructor=$course->instructors->instructor->last_name;
+					$courseSection=$course->section;
+					$st=$course->status;
+					if ($st=="ACTIVE"){$status=1;}
+					else{$status=0;}
+				
+					$readingListID=$this->getReadingListID($courseID);
+				
+					echo $readingListID."<br>";
+				
+					//update this to query API
+					
+					$rl=$this->getCourseReadingList($courseID, $readingListID);
+					
+
+					
+					$rlxml=simplexml_load_string($rl);
+
+
+
+					$this->writeFile($courseID, $rlxml); 
+				
+				
+				
+		        	$almaCourses["$courseID"]["courseName"]=$courseName;
+		        	$almaCourses["$courseID"]["courseCode"]=$courseCode;
+		        	$almaCourses["$courseID"]["courseSection"]=$courseSection;
+		        	$almaCourses["$courseID"]["courseInstructor"]=$instructor;
+		        	$almaCourses["$courseID"]["courseIdentifier"]=$courseID;
+            		$almaCourses["$courseID"]["status"]=$status;
+            		$almaCourses["$courseID"]["readingListID"]=$readingListID;				
+			
+			
+				}				
+				
+				
+				
+				
+				
+				
+			
+			}
+			
+			
+			//var_dump($almaCourses);
+			
+			
+			
+			//var_dump($xml);
+			//exit;
+			/*
 			
 			foreach ($xml->course as $course){
 			
 				$courseID=$course->id;
 				$courseCode=$course->code;
 				$courseName=$course->name;
-				$instructor=$course->instructors->instructor;
+				$instructor=$course->instructors->instructor->last_name;
 				$courseSection=$course->section;
 				$st=$course->status;
 				if ($st=="ACTIVE"){$status=1;}
@@ -301,7 +377,7 @@ class reservesSynch{
 			
 			var_dump($almaCourses);
 			
-			
+			*/
 	   
 
            return $almaCourses;    
@@ -324,6 +400,7 @@ class reservesSynch{
 		curl_close($ch);
 	
 
+		return $response;
 	
 	}
 
@@ -371,19 +448,18 @@ class reservesSynch{
 
 	}
 	
-	
-	
-
-	
 
 
 
     
     function writeFile($id, $xml){
-            $myFile = "/home/watzek_web/html/reserves/xml/$id.xml";
-            $fh = fopen($myFile, 'w') or die("can't open file");
-            fwrite($fh, $xml);
-            fclose($fh);
+            $myFile = "xml/$id.xml";
+            
+            $xml->asXML($myFile);
+            
+            //$fh = fopen($myFile, 'w') or die("can't open file");
+            //fwrite($fh, $xml);
+            //fclose($fh);
  
     }    
 
